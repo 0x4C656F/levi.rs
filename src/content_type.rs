@@ -2,7 +2,7 @@ use std::fmt;
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
-enum ContentType {
+pub enum ContentType {
     TextPlain,
     TextHtml,
     TextCss,
@@ -22,9 +22,9 @@ enum ContentType {
     Unknown,
 }
 
-impl ContentType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
+impl ToString for ContentType {
+    fn to_string(&self) -> String {
+        let s = match self {
             ContentType::TextPlain => "text/plain",
             ContentType::TextHtml => "text/html",
             ContentType::TextCss => "text/css",
@@ -42,7 +42,8 @@ impl ContentType {
             ContentType::VideoMp4 => "video/mp4",
             ContentType::VideoWebm => "video/webm",
             ContentType::Unknown => "unknown",
-        }
+        };
+        s.into()
     }
 }
 
@@ -69,11 +70,5 @@ impl FromStr for ContentType {
             "video/webm" => Ok(ContentType::VideoWebm),
             _ => Ok(ContentType::Unknown),
         }
-    }
-}
-
-impl fmt::Display for ContentType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
     }
 }

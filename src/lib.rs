@@ -11,4 +11,5 @@ pub use errors::*;
 pub use levi::Levi;
 pub use method::*;
 pub use request::*;
+pub use response::Result;
 pub use router::*;

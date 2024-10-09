@@ -1,20 +1,61 @@
+use serde::Serialize;
+
 use serde_json::Value;
 use std::collections::HashMap;
-use serde_json::Serialize;
 
-use crate::{errors::Exception, method::HttpMethod, request::Request};
+use crate::{method::HttpMethod, request::Request, response::Result};
 
-pub trait<T: Serialize + Deserialize> Handler: Fn(Request) -> Result<T, Exception> + Send + Sync + 'static {}
+pub type HandlerFn<T> = dyn Fn(Request) -> Result<T> + Send + Sync;
 
-impl<F> Handler for F where F: Fn(Request) -> Result<Value, Exception> + Send + Sync + 'static {}
+pub trait Handler<T>: Send + Sync + 'static
+where
+    T: Serialize,
+{
+    fn call(&self, req: Request) -> Result<T>;
+}
+
+impl<T, F> Handler<T> for F
+where
+    F: Fn(Request) -> Result<T> + Send + Sync + 'static,
+    T: Serialize,
+{
+    fn call(&self, req: Request) -> Result<T> {
+        (self)(req)
+    }
+}
 
 pub trait RouteHandler: Send + Sync {
     fn path(&self) -> &str;
     fn method(&self) -> &HttpMethod;
-    fn handle(&self, req: Request) -> Result<Value, Exception>;
+    fn handle(&self, req: Request) -> Result<Value>;
 }
 
-impl<F: Handler> RouteHandler for Route<F> {
+pub struct Route<T>
+where
+    T: Serialize + 'static,
+{
+    pub path: String,
+    pub method: HttpMethod,
+    pub handler: Box<dyn Handler<T>>,
+}
+
+impl<T: Serialize + 'static> Route<T> {
+    pub fn new<F>(path: String, method: HttpMethod, handler: F) -> Self
+    where
+        F: Handler<T> + 'static,
+    {
+        Self {
+            path,
+            method,
+            handler: Box::new(handler),
+        }
+    }
+}
+
+impl<T> RouteHandler for Route<T>
+where
+    T: Serialize,
+{
     fn path(&self) -> &str {
         &self.path
     }
@@ -23,16 +64,13 @@ impl<F: Handler> RouteHandler for Route<F> {
         &self.method
     }
 
-    fn handle(&self, req: Request) -> Result<Value, Exception> {
-        (self.handler_fn)(req)
+    fn handle(&self, req: Request) -> Result<Value> {
+        let res = self.handler.call(req);
+        match res {
+            Ok(v) => Ok(serde_json::json!(v)),
+            Err(e) => Err(e),
+        }
     }
-}
-
-#[derive(Debug)]
-pub struct Route<F: Handler> {
-    pub path: String,
-    pub method: HttpMethod,
-    pub handler_fn: F,
 }
 
 #[derive(Default)]
@@ -45,7 +83,7 @@ impl Router {
         Self { routes: Vec::new() }
     }
 
-    pub fn add_route<F: Handler>(&mut self, r: Route<F>) {
+    pub fn add_route<T: Serialize>(&mut self, r: Route<T>) {
         self.routes.push(Box::new(r));
     }
 

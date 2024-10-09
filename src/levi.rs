@@ -1,10 +1,12 @@
-use crate::errors::Exception;
+use crate::errors::NotFoundException;
 use crate::request;
 use crate::request::Request;
 use crate::response;
+use crate::response::Result;
 use crate::router::Router;
 use crate::HttpMethod;
-use serde_json::Value;
+use crate::Route;
+use serde::Serialize;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -15,7 +17,7 @@ pub struct Levi {
     pub router: Router,
 }
 impl Levi {
-    pub fn new(port: u32) -> Result<Self, std::io::Error> {
+    pub fn new(port: u32) -> std::result::Result<Self, std::io::Error> {
         let socket = TcpListener::bind(format!("127.0.0.1:{}", port))?;
         Ok(Self {
             socket,
@@ -33,15 +35,21 @@ impl Levi {
                     thread::spawn(move || {
                         let router = router.lock().unwrap();
                         let mut req = request::handle_request(&mut s);
-                        let (route, params) = router
-                            .get_route(&req.path, &req.method)
-                            .expect("Route nto found");
-                        req.params = params;
-                        route
-                            .handle(req)
-                            .expect("If you see this, its probably fine");
 
-                        response::handle_response(&mut s);
+                        match router.get_route(&req.path, &req.method) {
+                            Some((route, params)) => {
+                                req.params = params;
+                                let res = route.handle(req);
+
+                                response::handle_response(&mut s, res).expect("Unfortunate");
+                            }
+                            None => {
+                                let exc = NotFoundException::new("Not Found");
+
+                                response::handle_response(&mut s, Err(exc.into()))
+                                    .expect("Unfortunate");
+                            }
+                        }
                     });
                 }
                 Err(e) => eprintln!("Error: {}", e),
@@ -49,15 +57,13 @@ impl Levi {
         }
     }
 
-    pub fn route<T>(&mut self, path: impl ToString, method: HttpMethod, handler_fn: T) -> &mut Self
+    pub fn route<T, F>(&mut self, path: impl ToString, method: HttpMethod, handler: F) -> &mut Self
     where
-        T: Fn(Request) -> Result<Value, Exception> + Send + Sync + 'static,
+        T: Serialize + 'static,
+        F: Fn(Request) -> Result<T> + Send + Sync + 'static,
     {
-        self.router.add_route(crate::Route {
-            path: path.to_string(),
-            method,
-            handler_fn: Box::new(handler_fn),
-        });
+        self.router
+            .add_route(Route::new(path.to_string(), method, handler));
         self
     }
 }
